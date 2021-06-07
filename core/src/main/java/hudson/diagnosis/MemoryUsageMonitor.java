@@ -103,7 +103,7 @@ public final class MemoryUsageMonitor extends PeriodicWork {
          * Generates the memory usage statistics graph.
          */
         public TrendChart doGraph(@QueryParameter String type) throws IOException {
-            Jenkins.get().checkPermission(Jenkins.ADMINISTER);
+            Jenkins.get().checkAnyPermission(Jenkins.SYSTEM_READ, Jenkins.MANAGE);
             return MultiStageTimeSeries.createTrendChart(TimeScale.parse(type),used,max);
         }
     }
@@ -117,10 +117,12 @@ public final class MemoryUsageMonitor extends PeriodicWork {
         nonHeap = new MemoryGroup(pools, MemoryType.NON_HEAP);
     }
 
+    @Override
     public long getRecurrencePeriod() {
         return TimeUnit.SECONDS.toMillis(10);
     }
 
+    @Override
     protected void doRun() {
         heap.update();
         nonHeap.update();

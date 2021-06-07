@@ -58,6 +58,7 @@ public abstract class DownloadFromUrlInstaller extends ToolInstaller {
         return null;
     }
 
+    @Override
     public FilePath performInstallation(ToolInstallation tool, Node node, TaskListener log) throws IOException, InterruptedException {
         FilePath expected = preferredLocation(tool, node);
 
@@ -121,7 +122,7 @@ public abstract class DownloadFromUrlInstaller extends ToolInstaller {
         return null;
     }
 
-    public static abstract class DescriptorImpl<T extends DownloadFromUrlInstaller> extends ToolInstallerDescriptor<T> {
+    public abstract static class DescriptorImpl<T extends DownloadFromUrlInstaller> extends ToolInstallerDescriptor<T> {
         
         @SuppressWarnings("deprecation") // intentionally adding dynamic item here
         protected DescriptorImpl() {
@@ -135,6 +136,7 @@ public abstract class DownloadFromUrlInstaller extends ToolInstaller {
         public Downloadable createDownloadable() {
             final DescriptorImpl delegate = this;
             return new Downloadable(getId()) {
+                @Override
                 public JSONObject reduce(List<JSONObject> jsonList) {
                     if (isDefaultSchema(jsonList)) {
                         return delegate.reduce(jsonList);
@@ -157,10 +159,12 @@ public abstract class DownloadFromUrlInstaller extends ToolInstaller {
 
             if (toolInstallerList != null) {
                 ToolInstallerEntry[] entryList = toolInstallerList.list;
-                ToolInstallerEntry sampleEntry = entryList[0];
-                if (sampleEntry != null) {
-                    if (sampleEntry.id != null && sampleEntry.name != null && sampleEntry.url != null) {
-                        return true;
+                if (entryList != null) {
+                    ToolInstallerEntry sampleEntry = entryList[0];
+                    if (sampleEntry != null) {
+                        if (sampleEntry.id != null && sampleEntry.name != null && sampleEntry.url != null) {
+                            return true;
+                        }
                     }
                 }
             }
@@ -198,6 +202,7 @@ public abstract class DownloadFromUrlInstaller extends ToolInstaller {
          * <p>
          * By default we use the fully-qualified class name of the {@link DownloadFromUrlInstaller} subtype.
          */
+        @Override
         public String getId() {
             return clazz.getName().replace('$','.');
         }

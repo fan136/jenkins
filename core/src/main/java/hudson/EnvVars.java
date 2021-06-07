@@ -43,8 +43,8 @@ import java.util.Arrays;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.logging.Logger;
-import javax.annotation.Nonnull;
-import javax.annotation.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
 
 /**
  * Environment variables.
@@ -101,14 +101,14 @@ public class EnvVars extends TreeMap<String,String> {
      * @since 2.144
      * @param platform the platform to set.
      */
-    public void setPlatform(@Nonnull Platform platform) {
+    public void setPlatform(@NonNull Platform platform) {
         this.platform = platform;
     }
     public EnvVars() {
         super(CaseInsensitiveComparator.INSTANCE);
     }
 
-    public EnvVars(@Nonnull Map<String,String> m) {
+    public EnvVars(@NonNull Map<String,String> m) {
         this();
         putAll(m);
 
@@ -121,7 +121,7 @@ public class EnvVars extends TreeMap<String,String> {
     }
 
     @SuppressWarnings("CopyConstructorMissesField") // does not set #platform, see its Javadoc
-    public EnvVars(@Nonnull EnvVars m) {
+    public EnvVars(@NonNull EnvVars m) {
         // this constructor is so that in future we can get rid of the downcasting.
         this((Map)m);
     }
@@ -195,7 +195,7 @@ public class EnvVars extends TreeMap<String,String> {
             private final Comparator<? super String> comparator;
             public Set<String> referredVariables;
             
-            public TraceResolver(Comparator<? super String> comparator) {
+            TraceResolver(Comparator<? super String> comparator) {
                 this.comparator = comparator;
                 clear();
             }
@@ -204,6 +204,7 @@ public class EnvVars extends TreeMap<String,String> {
                 referredVariables = new TreeSet<>(comparator);
             }
             
+            @Override
             public String resolve(String name) {
                 referredVariables.add(name);
                 return "";
@@ -214,7 +215,7 @@ public class EnvVars extends TreeMap<String,String> {
             // map from a variable to a set of variables that variable refers.
             private final Map<String, Set<String>> refereeSetMap;
             
-            public VariableReferenceSorter(Map<String, Set<String>> refereeSetMap) {
+            VariableReferenceSorter(Map<String, Set<String>> refereeSetMap) {
                 this.refereeSetMap = refereeSetMap;
             }
             
@@ -231,15 +232,15 @@ public class EnvVars extends TreeMap<String,String> {
 
         private final Comparator<? super String> comparator;
         
-        @Nonnull
+        @NonNull
         private final EnvVars target;
-        @Nonnull
+        @NonNull
         private final Map<String,String> overrides;
         
         private Map<String, Set<String>> refereeSetMap;
         private List<String> orderedVariableNames;
         
-        public OverrideOrderCalculator(@Nonnull EnvVars target, @Nonnull Map<String,String> overrides) {
+        OverrideOrderCalculator(@NonNull EnvVars target, @NonNull Map<String,String> overrides) {
             comparator = target.comparator();
             this.target = target;
             this.overrides = overrides;
@@ -260,7 +261,7 @@ public class EnvVars extends TreeMap<String,String> {
             String referrer = cycle.get(refererIndex);
             boolean removed = refereeSetMap.get(referrer).remove(referee);
             assert(removed);
-            LOGGER.warning(String.format("Cyclic reference detected: %s", Util.join(cycle," -> ")));
+            LOGGER.warning(String.format("Cyclic reference detected: %s", String.join(" -> ", cycle)));
             LOGGER.warning(String.format("Cut the reference %s -> %s", referrer, referee));
         }
         
@@ -348,7 +349,7 @@ public class EnvVars extends TreeMap<String,String> {
      * See {@link #override(String, String)}.
      * @return {@code this}
      */
-    public EnvVars overrideExpandingAll(@Nonnull Map<String,String> all) {
+    public EnvVars overrideExpandingAll(@NonNull Map<String,String> all) {
         for (String key : new OverrideOrderCalculator(this, all).getOrderedVariableNames()) {
             override(key, expand(all.get(key)));
         }
@@ -391,7 +392,7 @@ public class EnvVars extends TreeMap<String,String> {
 
     /**
      * Add entire map but filter null values out.
-     * @since TODO
+     * @since 2.214
      */
     public void putAllNonNull(Map<String, String> map) {
         map.forEach(this::putIfNotNull);
@@ -438,6 +439,7 @@ public class EnvVars extends TreeMap<String,String> {
     }
 
     private static final class GetEnvVars extends MasterToSlaveCallable<EnvVars,RuntimeException> {
+        @Override
         public EnvVars call() {
             return new EnvVars(EnvVars.masterEnvVars);
         }

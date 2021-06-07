@@ -32,7 +32,8 @@ import org.apache.tools.ant.util.ReflectUtil;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
 
-import javax.annotation.CheckForNull;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -127,6 +128,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
          * @return {@code true} if there are more elements in the
          *         enumeration; {@code false} otherwise.
          */
+        @Override
         public boolean hasMoreElements() {
             return (this.nextResource != null);
         }
@@ -136,6 +138,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
          *
          * @return the next resource in the enumeration
          */
+        @Override
         public Object nextElement() {
             URL ret = this.nextResource;
             if (ret == null) {
@@ -699,6 +702,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      * @return a stream to the required resource or {@code null} if the
      *         resource cannot be found on the loader's classpath.
      */
+    @Override
     public InputStream getResourceAsStream(String name) {
         InputStream resourceStream = null;
         if (isParentFirst(name)) {
@@ -766,6 +770,30 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
         return parent == null ? super.getResourceAsStream(name) : parent.getResourceAsStream(name);
     }
 
+    @FunctionalInterface
+    private interface Converter<T> {
+        T convert(@NonNull JarFile jarFile, @NonNull JarEntry entry) throws IOException;
+    }
+
+    @CheckForNull
+    private <T> T storeAndConvert(JarFile jarFile, File file, String resourceName, Converter<T> converter) throws IOException {
+        if (jarFile == null) {
+            if (file.exists()) {
+                jarFile = new JarFile(file);
+                jarFiles.put(file, jarFile);
+            } else {
+                return null;
+            }
+            //to eliminate a race condition, retrieve the entry
+            //that is in the hash table under that filename
+            jarFile = (JarFile) jarFiles.get(file);
+        }
+        JarEntry entry = jarFile.getJarEntry(resourceName);
+        if (entry == null)
+            return null;
+        return converter.convert(jarFile, entry);
+    }
+
     /**
      * Returns an inputstream to a given resource in the given file which may
      * either be a directory or a zip file.
@@ -787,21 +815,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
                     return Files.newInputStream(resource.toPath());
                 }
             } else {
-                if (jarFile == null) {
-                    if (file.exists()) {
-                        jarFile = new JarFile(file);
-                        jarFiles.put(file, jarFile);
-                    } else {
-                        return null;
-                    }
-                    //to eliminate a race condition, retrieve the entry
-                    //that is in the hash table under that filename
-                    jarFile = (JarFile) jarFiles.get(file);
-                }
-                JarEntry entry = jarFile.getJarEntry(resourceName);
-                if (entry != null) {
-                    return jarFile.getInputStream(entry);
-                }
+                return storeAndConvert(jarFile, file, resourceName, JarFile::getInputStream);
             }
         } catch (Exception e) {
             log("Ignoring Exception " + e.getClass().getName() + ": " + e.getMessage()
@@ -874,6 +888,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *         resource could not be found or the caller doesn't have
      *         adequate privileges to get the resource.
      */
+    @Override
     public URL getResource(String name) {
         // we need to search the components of the path to see if
         // we can find the class we want.
@@ -949,7 +964,8 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      * @return an enumeration of URLs for the resources
      * @exception IOException if I/O errors occurs (can't happen)
      */
-    protected Enumeration/*<URL>*/ findResources(String name) throws IOException {
+    @Override
+    public Enumeration/*<URL>*/ findResources(String name) throws IOException {
         return findResources(name, true);
     }
 
@@ -1019,24 +1035,13 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
                     }
                 }
             } else {
-                if (jarFile == null) {
-                    if (file.exists()) {
-                        jarFile = new JarFile(file);
-                        jarFiles.put(file, jarFile);
-                    } else {
-                        return null;
-                    }
-                    // potential race-condition
-                    jarFile = (JarFile) jarFiles.get(file);
-                }
-                JarEntry entry = jarFile.getJarEntry(resourceName);
-                if (entry != null) {
+                return storeAndConvert(jarFile, file, resourceName, (jar, entry) -> {
                     try {
                         return new URL("jar:" + FILE_UTILS.getFileURL(file) + "!/" + entry);
                     } catch (MalformedURLException ex) {
                         return null;
                     }
-                }
+                });
             }
         } catch (Exception e) {
             String msg = "Unable to obtain resource from " + file + ": ";
@@ -1067,6 +1072,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      * on the system classpath (when not in isolated mode) or this loader's
      * classpath.
      */
+    @Override
     protected synchronized Class loadClass(String classname, boolean resolve)
             throws ClassNotFoundException {
         // 'sync' is needed - otherwise 2 threads can load the same class
@@ -1337,6 +1343,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      * @exception ClassNotFoundException if the requested class does not exist
      *                                   on this loader's classpath.
      */
+    @Override
     public Class findClass(String name) throws ClassNotFoundException {
         log("Finding class " + name, Project.MSG_DEBUG);
         return findClassInComponents(name);
@@ -1370,7 +1377,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
         // we can find the class we want.
         String classFilename = getClassFilename(name);
         for (File pathComponent : pathComponents) {
-            try (final InputStream stream = getResourceStream(pathComponent, classFilename)) {
+            try (InputStream stream = getResourceStream(pathComponent, classFilename)) {
                 if (stream != null) {
                     log("Loaded from " + pathComponent + " "
                         + classFilename, Project.MSG_DEBUG);
@@ -1441,6 +1448,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *
      * @param event the buildStarted event
      */
+    @Override
     public void buildStarted(BuildEvent event) {
         // Not significant for the class loader.
     }
@@ -1451,6 +1459,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *
      * @param event the buildFinished event
      */
+    @Override
     public void buildFinished(BuildEvent event) {
         cleanup();
     }
@@ -1464,6 +1473,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *
      * @since Ant 1.6.2
      */
+    @Override
     public void subBuildFinished(BuildEvent event) {
         if (event.getProject() == project) {
             cleanup();
@@ -1477,6 +1487,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *
      * @since Ant 1.6.2
      */
+    @Override
     public void subBuildStarted(BuildEvent event) {
         // Not significant for the class loader.
     }
@@ -1486,6 +1497,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *
      * @param event the targetStarted event
      */
+    @Override
     public void targetStarted(BuildEvent event) {
         // Not significant for the class loader.
     }
@@ -1495,6 +1507,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *
      * @param event the targetFinished event
      */
+    @Override
     public void targetFinished(BuildEvent event) {
         // Not significant for the class loader.
     }
@@ -1504,6 +1517,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *
      * @param event the taskStarted event
      */
+    @Override
     public void taskStarted(BuildEvent event) {
         // Not significant for the class loader.
     }
@@ -1513,6 +1527,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *
      * @param event the taskFinished event
      */
+    @Override
     public void taskFinished(BuildEvent event) {
         // Not significant for the class loader.
     }
@@ -1522,6 +1537,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *
      * @param event the messageLogged event
      */
+    @Override
     public void messageLogged(BuildEvent event) {
         // Not significant for the class loader.
     }
@@ -1543,6 +1559,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      * Returns a {@code String} representing this loader.
      * @return the path that this classloader has.
      */
+    @Override
     public String toString() {
         return "AntClassLoader[" + getClasspath() + "]";
     }

@@ -24,7 +24,6 @@
  */
 package hudson.model;
 
-import com.google.common.collect.ImmutableSet;
 import hudson.DescriptorExtensionList;
 import hudson.EnvVars;
 import hudson.FilePath;
@@ -57,15 +56,18 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import javax.servlet.ServletException;
 import jenkins.model.Jenkins;
 import jenkins.security.MasterToSlaveCallable;
@@ -95,7 +97,7 @@ import org.kohsuke.stapler.StaplerResponse;
  * On February, 2016 a general renaming was done internally: the "slave" term was replaced by
  * "Agent". This change was applied in: UI labels/HTML pages, javadocs and log messages.
  * Java classes, fields, methods, etc were not renamed to avoid compatibility issues.
- * See <a href="https://jenkins-ci.org/issue/27268">JENKINS-27268</a>.
+ * See <a href="https://www.jenkins.io/issue/27268">JENKINS-27268</a>.
  *
  * @author Kohsuke Kawaguchi
  */
@@ -126,7 +128,7 @@ public abstract class Slave extends Node implements Serializable {
     /**
      * Number of executors of this node.
      */
-    private int numExecutors = 2;
+    private int numExecutors = 1;
 
     /**
      * Job allocation strategy.
@@ -152,11 +154,6 @@ public abstract class Slave extends Node implements Serializable {
             new DescribableList<>(this);
 
     /**
-     * Lazily computed set of labels from {@link #label}.
-     */
-    private transient volatile Set<Label> labels;
-
-    /**
      * Removed with no replacement.
      */
     @Deprecated
@@ -164,7 +161,7 @@ public abstract class Slave extends Node implements Serializable {
 
     /**
      * Use {@link #Slave(String, String, ComputerLauncher)} and set the rest through setters.
-     * @deprecated since FIXME
+     * @deprecated since 2.184
      */
     @Deprecated
     public Slave(String name, String nodeDescription, String remoteFS, String numExecutors,
@@ -181,7 +178,7 @@ public abstract class Slave extends Node implements Serializable {
     	this(name, nodeDescription, remoteFS, numExecutors, mode, labelString, launcher, retentionStrategy, new ArrayList());
     }
 
-    public Slave(@Nonnull String name, String remoteFS, ComputerLauncher launcher) throws FormException, IOException {
+    public Slave(@NonNull String name, String remoteFS, ComputerLauncher launcher) throws FormException, IOException {
         this.name = name;
         this.remoteFS = remoteFS;
         this.launcher = launcher;
@@ -192,7 +189,7 @@ public abstract class Slave extends Node implements Serializable {
      *      Use {@link #Slave(String, String, ComputerLauncher)} and set the rest through setters.
      */
     @Deprecated
-    public Slave(@Nonnull String name, String nodeDescription, String remoteFS, int numExecutors,
+    public Slave(@NonNull String name, String nodeDescription, String remoteFS, int numExecutors,
                  Mode mode, String labelString, ComputerLauncher launcher, RetentionStrategy retentionStrategy, List<? extends NodeProperty<?>> nodeProperties) throws FormException, IOException {
         this.name = name;
         this.description = nodeDescription;
@@ -205,7 +202,6 @@ public abstract class Slave extends Node implements Serializable {
         getAssignedLabels();    // compute labels now
 
         this.nodeProperties.replaceBy(nodeProperties);
-         Slave node = (Slave) Jenkins.get().getNode(name);
 
         if (name.equals(""))
             throw new FormException(Messages.Slave_InvalidConfig_NoName(), null);
@@ -226,7 +222,7 @@ public abstract class Slave extends Node implements Serializable {
      */
     @Deprecated
     @Restricted(DoNotUse.class)
-    @RestrictedSince("TODO")
+    @RestrictedSince("2.220")
     public String getUserId() {
         return userId;
     }
@@ -238,7 +234,7 @@ public abstract class Slave extends Node implements Serializable {
      */
     @Deprecated
     @Restricted(DoNotUse.class)
-    @RestrictedSince("TODO")
+    @RestrictedSince("2.220")
     public void setUserId(String userId){
     }
 
@@ -264,6 +260,7 @@ public abstract class Slave extends Node implements Serializable {
         return remoteFS;
     }
 
+    @Override
     public String getNodeName() {
         return name;
     }
@@ -272,6 +269,7 @@ public abstract class Slave extends Node implements Serializable {
         return getClass().getName() + "[" + name + "]";
     }
 
+    @Override
     public void setNodeName(String name) {
         this.name = name;
     }
@@ -281,10 +279,12 @@ public abstract class Slave extends Node implements Serializable {
         this.description = value;
     }
 
+    @Override
     public String getNodeDescription() {
         return description;
     }
 
+    @Override
     public int getNumExecutors() {
         return numExecutors;
     }
@@ -294,6 +294,7 @@ public abstract class Slave extends Node implements Serializable {
         this.numExecutors = n;
     }
 
+    @Override
     public Mode getMode() {
         return mode;
     }
@@ -303,6 +304,7 @@ public abstract class Slave extends Node implements Serializable {
         this.mode = mode;
     }
 
+    @Override
     public DescribableList<NodeProperty<?>, NodePropertyDescriptor> getNodeProperties() {
         assert nodeProperties != null;
     	return nodeProperties;
@@ -322,6 +324,7 @@ public abstract class Slave extends Node implements Serializable {
         this.retentionStrategy = availabilityStrategy;
     }
 
+    @Override
     public String getLabelString() {
         return Util.fixNull(label).trim();
     }
@@ -339,10 +342,12 @@ public abstract class Slave extends Node implements Serializable {
         return new GetClockDifference1();
     }
 
+    @Override
     public Computer createComputer() {
         return new SlaveComputer(this);
     }
 
+    @Override
     public FilePath getWorkspaceFor(TopLevelItem item) {
         for (WorkspaceLocator l : WorkspaceLocator.all()) {
             FilePath workspace = l.locate(item, this);
@@ -356,6 +361,7 @@ public abstract class Slave extends Node implements Serializable {
         return r.child(item.getFullName());
     }
 
+    @Override
     @CheckForNull
     public FilePath getRootPath() {
         final SlaveComputer computer = getComputer();
@@ -394,11 +400,12 @@ public abstract class Slave extends Node implements Serializable {
             // so that browsers can download them in the right file name.
             // see http://support.microsoft.com/kb/260519 and http://www.boutell.com/newfaq/creating/forcedownload.html
             rsp.setHeader("Content-Disposition", "attachment; filename=" + fileName);
-            InputStream in = con.getInputStream();
-            rsp.serveFile(req, in, con.getLastModified(), con.getContentLength(), "*.jar" );
-            in.close();
+            try (InputStream in = con.getInputStream()) {
+                rsp.serveFile(req, in, con.getLastModified(), con.getContentLengthLong(), "*.jar");
+            }
         }
 
+        @Override
         public void generateResponse(StaplerRequest req, StaplerResponse rsp, Object node) throws IOException, ServletException {
             doIndex(req,rsp);
         }
@@ -479,7 +486,8 @@ public abstract class Slave extends Node implements Serializable {
      *      If there is no computer it will return a {@link hudson.Launcher.DummyLauncher}, otherwise it
      *      will return a {@link hudson.Launcher.RemoteLauncher} instead.
      */
-    @Nonnull
+    @Override
+    @NonNull
     public Launcher createLauncher(TaskListener listener) {
         SlaveComputer c = getComputer();
         if (c == null) {
@@ -526,7 +534,7 @@ public abstract class Slave extends Node implements Serializable {
         }
     }
     
-    private void reportLauncherCreateError(@Nonnull String humanReadableMsg, @CheckForNull String exceptionDetails, @Nonnull TaskListener listener) {
+    private void reportLauncherCreateError(@NonNull String humanReadableMsg, @CheckForNull String exceptionDetails, @NonNull TaskListener listener) {
         String message = "Issue with creating launcher for agent " + name + ". " + humanReadableMsg;
         listener.error(message);
         if (LOGGER.isLoggable(Level.WARNING)) {
@@ -573,6 +581,7 @@ public abstract class Slave extends Node implements Serializable {
         return this;
     }
 
+    @Override
     public SlaveDescriptor getDescriptor() {
         Descriptor d = Jenkins.get().getDescriptorOrDie(getClass());
         if (d instanceof SlaveDescriptor)
@@ -580,7 +589,7 @@ public abstract class Slave extends Node implements Serializable {
         throw new IllegalStateException(d.getClass()+" needs to extend from SlaveDescriptor");
     }
 
-    public static abstract class SlaveDescriptor extends NodeDescriptor {
+    public abstract static class SlaveDescriptor extends NodeDescriptor {
         public FormValidation doCheckNumExecutors(@QueryParameter String value) {
             return FormValidation.validatePositiveInteger(value);
         }
@@ -609,7 +618,7 @@ public abstract class Slave extends Node implements Serializable {
          * @return the filtered list
          * @since 2.12
          */
-        @Nonnull
+        @NonNull
         @Restricted(NoExternalUse.class) // intended for use by Jelly EL only (plus hack in DelegatingComputerLauncher)
         public final List<Descriptor<ComputerLauncher>> computerLauncherDescriptors(@CheckForNull Slave it) {
             DescriptorExtensionList<ComputerLauncher, Descriptor<ComputerLauncher>> all =
@@ -626,8 +635,7 @@ public abstract class Slave extends Node implements Serializable {
          * @return the filtered list
          * @since 2.12
          */
-        @Nonnull
-        @SuppressWarnings("unchecked") // used by Jelly EL only
+        @NonNull
         @Restricted(NoExternalUse.class) // used by Jelly EL only
         public final List<Descriptor<RetentionStrategy<?>>> retentionStrategyDescriptors(@CheckForNull Slave it) {
             return it == null ? DescriptorVisibilityFilter.applyType(clazz, RetentionStrategy.all())
@@ -641,7 +649,7 @@ public abstract class Slave extends Node implements Serializable {
          * @return the filtered list
          * @since 2.12
          */
-        @Nonnull
+        @NonNull
         @SuppressWarnings("unchecked") // used by Jelly EL only
         @Restricted(NoExternalUse.class) // used by Jelly EL only
         public final List<NodePropertyDescriptor> nodePropertyDescriptors(@CheckForNull Slave it) {
@@ -686,6 +694,7 @@ public abstract class Slave extends Node implements Serializable {
      * </ol>
      */
     private static final class GetClockDifference1 extends MasterToSlaveCallable<ClockDifference,IOException> {
+        @Override
         public ClockDifference call() {
             // this method must be being invoked locally, which means the clock is in sync
             return new ClockDifference(0);
@@ -705,6 +714,7 @@ public abstract class Slave extends Node implements Serializable {
          */
         private final long startTime = System.currentTimeMillis();
 
+        @Override
         public GetClockDifference3 call() {
             return new GetClockDifference3(startTime);
         }
@@ -716,7 +726,7 @@ public abstract class Slave extends Node implements Serializable {
         private final long remoteTime = System.currentTimeMillis();
         private final long startTime;
 
-        public GetClockDifference3(long startTime) {
+        GetClockDifference3(long startTime) {
             this.startTime = startTime;
         }
 
@@ -734,5 +744,5 @@ public abstract class Slave extends Node implements Serializable {
     /**
      * Provides a collection of file names, which are accessible via /jnlpJars link.
      */
-    private static final Set<String> ALLOWED_JNLPJARS_FILES = ImmutableSet.of("agent.jar", "slave.jar", "remoting.jar", "jenkins-cli.jar", "hudson-cli.jar");
+    private static final Set<String> ALLOWED_JNLPJARS_FILES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList("agent.jar", "slave.jar", "remoting.jar", "jenkins-cli.jar", "hudson-cli.jar")));
 }
