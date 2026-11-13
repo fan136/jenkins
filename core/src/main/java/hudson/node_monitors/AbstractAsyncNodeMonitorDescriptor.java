@@ -1,14 +1,15 @@
 package hudson.node_monitors;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.logging.Level.WARNING;
+
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Functions;
 import hudson.model.Computer;
 import hudson.remoting.Callable;
 import hudson.remoting.VirtualChannel;
 import hudson.slaves.SlaveComputer;
-import jenkins.model.Jenkins;
-
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -16,15 +17,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.logging.Logger;
-
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.logging.Level.WARNING;
+import jenkins.model.Jenkins;
 
 /**
  * Sophisticated version of {@link AbstractNodeMonitorDescriptor} that
@@ -53,14 +51,14 @@ public abstract class AbstractAsyncNodeMonitorDescriptor<T> extends AbstractNode
     /**
      * Creates a {@link Callable} that performs the monitoring when executed.
      */
-    protected abstract @CheckForNull Callable<T,IOException> createCallable(Computer c);
+    protected abstract @CheckForNull Callable<T, IOException> createCallable(Computer c);
 
     @Override
     protected T monitor(Computer c) throws IOException, InterruptedException {
         VirtualChannel ch = c.getChannel();
         if (ch != null) {
-            Callable<T,IOException> cc = createCallable(c);
-            if (cc!=null)
+            Callable<T, IOException> cc = createCallable(c);
+            if (cc != null)
                 return ch.call(cc);
         }
         return null;
@@ -81,18 +79,18 @@ public abstract class AbstractAsyncNodeMonitorDescriptor<T> extends AbstractNode
     /**
      * Perform monitoring with detailed reporting.
      */
-    protected final @Nonnull Result<T> monitorDetailed() throws InterruptedException {
-        Map<Computer,Future<T>> futures = new HashMap<>();
+    protected final @NonNull Result<T> monitorDetailed() throws InterruptedException {
+        Map<Computer, Future<T>> futures = new HashMap<>();
         Set<Computer> skipped = new HashSet<>();
 
         for (Computer c : Jenkins.get().getComputers()) {
             try {
                 VirtualChannel ch = c.getChannel();
-                futures.put(c,null);    // sentinel value
-                if (ch!=null) {
+                futures.put(c, null);    // sentinel value
+                if (ch != null) {
                     Callable<T, ?> cc = createCallable(c);
-                    if (cc!=null)
-                        futures.put(c,ch.callAsync(cc));
+                    if (cc != null)
+                        futures.put(c, ch.callAsync(cc));
                 }
             } catch (RuntimeException | IOException e) {
                 error(c, e);
@@ -102,16 +100,16 @@ public abstract class AbstractAsyncNodeMonitorDescriptor<T> extends AbstractNode
         final long now = System.currentTimeMillis();
         final long end = now + getMonitoringTimeOut();
 
-        final Map<Computer,T> data = new HashMap<>();
+        final Map<Computer, T> data = new HashMap<>();
 
-        for (Entry<Computer, Future<T>> e : futures.entrySet()) {
+        for (Map.Entry<Computer, Future<T>> e : futures.entrySet()) {
             Computer c = e.getKey();
             Future<T> f = futures.get(c);
             data.put(c, null);  // sentinel value
 
-            if (f!=null) {
+            if (f != null) {
                 try {
-                    data.put(c,f.get(Math.max(0,end-System.currentTimeMillis()), MILLISECONDS));
+                    data.put(c, f.get(Math.max(0, end - System.currentTimeMillis()), MILLISECONDS));
                 } catch (RuntimeException | TimeoutException | ExecutionException x) {
                     error(c, x);
                 }
@@ -141,7 +139,7 @@ public abstract class AbstractAsyncNodeMonitorDescriptor<T> extends AbstractNode
     /**
      * Result object for {@link AbstractAsyncNodeMonitorDescriptor#monitorDetailed()} to facilitate extending information
      * returned in the future.
-     *
+     * <p>
      * The {@link #getMonitoringData()} provides the results of the monitoring as {@link #monitor()} does. Note the value
      * in the map can be {@code null} for several reasons:
      * <ul>
@@ -151,29 +149,29 @@ public abstract class AbstractAsyncNodeMonitorDescriptor<T> extends AbstractNode
      *     <li>The {@link AbstractAsyncNodeMonitorDescriptor#createCallable} has returned null.</li>
      * </ul>
      *
-     * Clients can distinguishing among these states based on the additional data attached to this object. {@link #getSkipped()}
-     * returns computers that was not monitored as they ware either offline or monitor produced {@code null} {@link Callable}.
+     * Clients can distinguish among these states based on the additional data attached to this object. {@link #getSkipped()}
+     * returns computers that were not monitored as they were either offline or monitor produced {@code null} {@link Callable}.
      */
     protected static final class Result<T> {
         private static final long serialVersionUID = -7671448355804481216L;
 
-        private final @Nonnull Map<Computer, T> data;
-        private final @Nonnull ArrayList<Computer> skipped;
+        private final @NonNull Map<Computer, T> data;
+        private final @NonNull ArrayList<Computer> skipped;
 
-        private Result(@Nonnull Map<Computer, T> data, @Nonnull Collection<Computer> skipped) {
+        private Result(@NonNull Map<Computer, T> data, @NonNull Collection<Computer> skipped) {
             this.data = new HashMap<>(data);
             this.skipped = new ArrayList<>(skipped);
         }
 
-        protected @Nonnull Map<Computer, T> getMonitoringData() {
+        public @NonNull Map<Computer, T> getMonitoringData() {
             return data;
         }
 
         /**
-         * Computers that ware skipped during monitoring as they either do not have a a channel (offline) or the monitor
-         * have not produced the Callable. Computers that caused monitor to throw exception are not returned here.
+         * Computers that were skipped during monitoring as they either do not have a channel (offline) or the monitor
+         * has not produced the Callable. Computers that caused monitor to throw exception are not returned here.
          */
-        protected @Nonnull List<Computer> getSkipped() {
+        public @NonNull List<Computer> getSkipped() {
             return skipped;
         }
     }

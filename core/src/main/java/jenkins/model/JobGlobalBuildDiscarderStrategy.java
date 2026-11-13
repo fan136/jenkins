@@ -21,17 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.model;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.model.Job;
+import java.io.IOException;
 import org.jenkinsci.Symbol;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.stapler.DataBoundConstructor;
-
-import javax.annotation.Nonnull;
-import java.io.IOException;
 
 /**
  * Periodically call a job's configured build discarder in the background.
@@ -56,7 +56,7 @@ public class JobGlobalBuildDiscarderStrategy extends GlobalBuildDiscarderStrateg
 
     @Extension @Symbol("jobBuildDiscarder")
     public static class DescriptorImpl extends GlobalBuildDiscarderStrategyDescriptor {
-        @Nonnull
+        @NonNull
         @Override
         public String getDisplayName() {
             return Messages.JobGlobalBuildDiscarderStrategy_displayName();

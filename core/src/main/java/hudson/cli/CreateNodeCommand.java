@@ -27,10 +27,7 @@ package hudson.cli;
 import hudson.Extension;
 import hudson.model.Computer;
 import hudson.model.Node;
-import hudson.model.Slave;
-import hudson.model.User;
 import jenkins.model.Jenkins;
-
 import org.kohsuke.args4j.Argument;
 
 /**
@@ -40,7 +37,7 @@ import org.kohsuke.args4j.Argument;
 @Extension
 public class CreateNodeCommand extends CLICommand {
 
-    @Argument(metaVar="NODE", usage="Name of the node")
+    @Argument(metaVar = "NODE", usage = "Name of the node")
     public String nodeName;
 
     @Override

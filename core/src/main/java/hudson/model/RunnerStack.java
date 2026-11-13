@@ -21,14 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
 import hudson.model.Run.RunExecution;
-
-import java.util.Stack;
 import java.util.Map;
+import java.util.Stack;
 import java.util.WeakHashMap;
-import javax.annotation.CheckForNull;
 
 /**
  * Keeps track of {@link RunExecution}s that are currently executing on the given thread
@@ -38,7 +38,7 @@ import javax.annotation.CheckForNull;
  * @since 1.319
  */
 final class RunnerStack {
-    private final Map<Executor,Stack<RunExecution>> stack = new WeakHashMap<>();
+    private final Map<Executor, Stack<RunExecution>> stack = new WeakHashMap<>();
 
     synchronized void push(RunExecution r) {
         Executor e = Executor.currentExecutor();
@@ -50,7 +50,7 @@ final class RunnerStack {
         Executor e = Executor.currentExecutor();
         Stack<RunExecution> s = stack.get(e);
         s.pop();
-        if(s.isEmpty()) stack.remove(e);
+        if (s.isEmpty()) stack.remove(e);
     }
 
     /**

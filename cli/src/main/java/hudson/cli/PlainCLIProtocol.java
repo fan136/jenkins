@@ -24,6 +24,7 @@
 
 package hudson.cli;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.DataInputStream;
@@ -72,6 +73,7 @@ class PlainCLIProtocol {
         STDERR(false);
         /** True if sent from the client to the server; false if sent from the server to the client. */
         final boolean clientSide;
+
         Op(boolean clientSide) {
             this.clientSide = clientSide;
         }
@@ -151,15 +153,14 @@ class PlainCLIProtocol {
                 }
             } catch (ClosedChannelException x) {
                 LOGGER.log(Level.FINE, null, x);
-                side.handleClose();
             } catch (IOException x) {
                 LOGGER.log(Level.WARNING, null, flightRecorder.analyzeCrash(x, "broken stream"));
             } catch (ReadPendingException x) {
                 // in case trick in CLIAction does not work
                 LOGGER.log(Level.FINE, null, x);
-                side.handleClose();
             } catch (RuntimeException x) {
                 LOGGER.log(Level.WARNING, null, x);
+            } finally {
                 side.handleClose();
             }
         }
@@ -172,7 +173,7 @@ class PlainCLIProtocol {
         }
     }
 
-    static abstract class EitherSide implements Closeable {
+    abstract static class EitherSide implements Closeable {
 
         private final Output out;
 
@@ -232,12 +233,14 @@ class PlainCLIProtocol {
                 public void write(int b) throws IOException {
                     send(op, new byte[] {(byte) b});
                 }
+
                 @Override
-                public void write(byte[] b, int off, int len) throws IOException {
+                public void write(@NonNull byte[] b, int off, int len) throws IOException {
                     send(op, b, off, len);
                 }
+
                 @Override
-                public void write(byte[] b) throws IOException {
+                public void write(@NonNull byte[] b) throws IOException {
                     send(op, b);
                 }
             };
@@ -250,7 +253,7 @@ class PlainCLIProtocol {
 
     }
 
-    static abstract class ServerSide extends EitherSide {
+    abstract static class ServerSide extends EitherSide {
 
         ServerSide(Output out) {
             super(out);
@@ -259,28 +262,33 @@ class PlainCLIProtocol {
         @Override
         protected final boolean handle(Op op, DataInputStream dis) throws IOException {
             assert op.clientSide;
-            switch (op) {
-            case ARG:
-                onArg(dis.readUTF());
-                return true;
-            case LOCALE:
-                onLocale(dis.readUTF());
-                return true;
-            case ENCODING:
-                onEncoding(dis.readUTF());
-                return true;
-            case START:
-                onStart();
-                return true;
-            case STDIN:
-                onStdin(IOUtils.toByteArray(dis));
-                return true;
-            case END_STDIN:
-                onEndStdin();
-                return true;
-            default:
-                return false;
-            }
+            return switch (op) {
+                case ARG -> {
+                    onArg(dis.readUTF());
+                    yield true;
+                }
+                case LOCALE -> {
+                    onLocale(dis.readUTF());
+                    yield true;
+                }
+                case ENCODING -> {
+                    onEncoding(dis.readUTF());
+                    yield true;
+                }
+                case START -> {
+                    onStart();
+                    yield true;
+                }
+                case STDIN -> {
+                    onStdin(dis.readAllBytes());
+                    yield true;
+                }
+                case END_STDIN -> {
+                    onEndStdin();
+                    yield true;
+                }
+                default -> false;
+            };
         }
 
         protected abstract void onArg(String text);
@@ -309,7 +317,7 @@ class PlainCLIProtocol {
 
     }
 
-    static abstract class ClientSide extends EitherSide {
+    abstract static class ClientSide extends EitherSide {
 
         ClientSide(Output out) {
             super(out);
@@ -318,19 +326,21 @@ class PlainCLIProtocol {
         @Override
         protected boolean handle(Op op, DataInputStream dis) throws IOException {
             assert !op.clientSide;
-            switch (op) {
-            case EXIT:
-                onExit(dis.readInt());
-                return true;
-            case STDOUT:
-                onStdout(IOUtils.toByteArray(dis));
-                return true;
-            case STDERR:
-                onStderr(IOUtils.toByteArray(dis));
-                return true;
-            default:
-                return false;
-            }
+            return switch (op) {
+                case EXIT -> {
+                    onExit(dis.readInt());
+                    yield true;
+                }
+                case STDOUT -> {
+                    onStdout(dis.readAllBytes());
+                    yield true;
+                }
+                case STDERR -> {
+                    onStderr(dis.readAllBytes());
+                    yield true;
+                }
+                default -> false;
+            };
         }
 
         protected abstract void onExit(int code);

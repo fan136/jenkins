@@ -24,43 +24,42 @@
 
 package hudson.cli;
 
-import hudson.slaves.DumbSlave;
-import jenkins.model.Jenkins;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.jvnet.hudson.test.JenkinsRule;
-
-import java.util.concurrent.Callable;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
 import static hudson.cli.CLICommandInvoker.Matcher.failedWith;
 import static hudson.cli.CLICommandInvoker.Matcher.hasNoStandardOutput;
 import static hudson.cli.CLICommandInvoker.Matcher.succeededSilently;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.fail;
+
+import hudson.slaves.DumbSlave;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import jenkins.model.Jenkins;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 /**
  * @author pjanouse
  */
-public class WaitNodeOfflineCommandTest {
+@WithJenkins
+class WaitNodeOfflineCommandTest {
 
     private CLICommandInvoker command;
 
-    @Rule
-    public final JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         command = new CLICommandInvoker(j, "wait-node-offline");
     }
 
     @Test
-    public void waitNodeOfflineShouldFailIfNodeDoesNotExist() throws Exception {
+    void waitNodeOfflineShouldFailIfNodeDoesNotExist() {
         final CLICommandInvoker.Result result = command
                 .authorizedTo(Jenkins.READ)
                 .invokeWithArgs("never_created");
@@ -70,12 +69,10 @@ public class WaitNodeOfflineCommandTest {
     }
 
     @Test
-    public void waitNodeOfflineShouldSucceedOnOfflineNode() throws Exception {
+    void waitNodeOfflineShouldSucceedOnOfflineNode() throws Exception {
         DumbSlave slave = j.createSlave("aNode", "", null);
         slave.toComputer().setTemporarilyOffline(true);
-        while (true) {
-            if(slave.toComputer().isOffline())
-                break;
+        while (!slave.toComputer().isOffline()) {
             Thread.sleep(100);
         }
 
@@ -87,7 +84,7 @@ public class WaitNodeOfflineCommandTest {
     }
 
     @Test
-    public void waitNodeOfflineShouldSucceedOnGoingOfflineNode() throws Exception {
+    void waitNodeOfflineShouldSucceedOnGoingOfflineNode() throws Exception {
         DumbSlave slave = j.createSlave("aNode", "", null);
         slave.toComputer().setTemporarilyOffline(true);
 
@@ -99,12 +96,10 @@ public class WaitNodeOfflineCommandTest {
     }
 
     @Test
-    public void waitNodeOfflineShouldSucceedOnDisconnectedNode() throws Exception {
+    void waitNodeOfflineShouldSucceedOnDisconnectedNode() throws Exception {
         DumbSlave slave = j.createSlave("aNode", "", null);
         slave.toComputer().disconnect();
-        while (true) {
-            if(slave.toComputer().isOffline())
-                break;
+        while (!slave.toComputer().isOffline()) {
             Thread.sleep(100);
         }
 
@@ -116,7 +111,7 @@ public class WaitNodeOfflineCommandTest {
     }
 
     @Test
-    public void waitNodeOfflineShouldSucceedOnDisconnectingNode() throws Exception {
+    void waitNodeOfflineShouldSucceedOnDisconnectingNode() throws Exception {
         DumbSlave slave = j.createSlave("aNode", "", null);
         slave.toComputer().disconnect();
 
@@ -128,19 +123,17 @@ public class WaitNodeOfflineCommandTest {
     }
 
     @Test
-    public void waitNodeOfflineShouldTimeoutOnOnlineNode() throws Exception {
+    void waitNodeOfflineShouldTimeoutOnOnlineNode() throws Exception {
         DumbSlave slave = j.createSlave("aNode", "", null);
         slave.toComputer().waitUntilOnline();
         boolean timeoutOccurred = false;
 
-        FutureTask task = new FutureTask(new Callable() {
-            public Object call() {
-                final CLICommandInvoker.Result result = command
-                        .authorizedTo(Jenkins.READ)
-                        .invokeWithArgs("aNode");
-                fail("Never should return from previous CLI call!");
-                return null;
-            }
+        FutureTask task = new FutureTask(() -> {
+            final CLICommandInvoker.Result result = command
+                    .authorizedTo(Jenkins.READ)
+                    .invokeWithArgs("aNode");
+            fail("Never should return from previous CLI call!");
+            return null;
         });
         try {
             task.get(30, TimeUnit.SECONDS);
@@ -150,7 +143,7 @@ public class WaitNodeOfflineCommandTest {
             task.cancel(true);
         }
 
-        if(!timeoutOccurred)
+        if (!timeoutOccurred)
             fail("Missing timeout for CLI call");
     }
 }

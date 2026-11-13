@@ -21,19 +21,20 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.model;
 
 import hudson.Extension;
 import hudson.ExtensionList;
+import hudson.security.Permission;
 import hudson.util.DescribableList;
+import java.io.IOException;
+import java.util.List;
 import net.sf.json.JSONObject;
 import org.jenkinsci.Symbol;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
-import org.kohsuke.stapler.StaplerRequest;
-
-import java.io.IOException;
-import java.util.Collections;
+import org.kohsuke.stapler.StaplerRequest2;
 
 /**
  * Global configuration UI for background build discarders
@@ -48,8 +49,12 @@ public class GlobalBuildDiscarderConfiguration extends GlobalConfiguration {
         return ExtensionList.lookupSingleton(GlobalBuildDiscarderConfiguration.class);
     }
 
+    public GlobalBuildDiscarderConfiguration() {
+        load();
+    }
+
     private final DescribableList<GlobalBuildDiscarderStrategy, GlobalBuildDiscarderStrategyDescriptor> configuredBuildDiscarders =
-            new DescribableList<>(this, Collections.singletonList(new JobGlobalBuildDiscarderStrategy()));
+            new DescribableList<>(this, List.of(new JobGlobalBuildDiscarderStrategy()));
 
     private Object readResolve() {
         configuredBuildDiscarders.setOwner(this);
@@ -61,7 +66,12 @@ public class GlobalBuildDiscarderConfiguration extends GlobalConfiguration {
     }
 
     @Override
-    public boolean configure(StaplerRequest req, JSONObject json) throws FormException {
+    public Permission getRequiredGlobalConfigPagePermission() {
+        return Jenkins.MANAGE;
+    }
+
+    @Override
+    public boolean configure(StaplerRequest2 req, JSONObject json) throws FormException {
         try {
             configuredBuildDiscarders.rebuildHetero(req, json, GlobalBuildDiscarderStrategyDescriptor.all(), "configuredBuildDiscarders");
             return true;

@@ -21,40 +21,44 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.security;
 
+import static jenkins.security.ResourceDomainFilter.ERROR_RESPONSE;
+
+import edu.umd.cs.findbugs.annotations.CheckForNull;
 import hudson.Extension;
 import hudson.ExtensionList;
 import hudson.Util;
 import hudson.util.FormValidation;
+import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
+import java.security.interfaces.RSAPublicKey;
+import java.util.Base64;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import jenkins.diagnostics.RootUrlNotSetMonitor;
 import jenkins.model.GlobalConfiguration;
 import jenkins.model.Jenkins;
 import jenkins.model.JenkinsLocationConfiguration;
 import jenkins.model.identity.InstanceIdentityProvider;
 import jenkins.util.UrlHelper;
-import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.io.IOUtils;
 import org.jenkinsci.Symbol;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.Beta;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.Stapler;
-import org.kohsuke.stapler.StaplerRequest;
+import org.kohsuke.stapler.StaplerRequest2;
 import org.kohsuke.stapler.verb.POST;
-
-import javax.servlet.http.HttpServletRequest;
-import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLConnection;
-import java.security.interfaces.RSAPublicKey;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import javax.annotation.CheckForNull;
-
-import static jenkins.security.ResourceDomainFilter.ERROR_RESPONSE;
 
 /**
  * Configure the resource root URL, an alternative root URL to serve resources from
@@ -65,7 +69,7 @@ import static jenkins.security.ResourceDomainFilter.ERROR_RESPONSE;
  *
  * @since 2.200, unrestricted since 2.203
  */
-@Extension(ordinal = JenkinsLocationConfiguration.ORDINAL-1) // sort just below the regular location config
+@Extension(ordinal = JenkinsLocationConfiguration.ORDINAL - 1) // sort just below the regular location config
 @Restricted(Beta.class)
 @Symbol("resourceRoot")
 public final class ResourceDomainConfiguration extends GlobalConfiguration {
@@ -110,14 +114,14 @@ public final class ResourceDomainConfiguration extends GlobalConfiguration {
 
         URL resourceRootUrl;
         try {
-            resourceRootUrl = new URL(resourceRootUrlString);
-        } catch (MalformedURLException ex) {
+            resourceRootUrl = new URI(resourceRootUrlString).toURL();
+        } catch (MalformedURLException | URISyntaxException ex) {
             return FormValidation.error(Messages.ResourceDomainConfiguration_Invalid());
         }
 
         String resourceRootUrlHost = resourceRootUrl.getHost();
         try {
-            String jenkinsRootUrlHost = new URL(jenkinsRootUrlString).getHost();
+            String jenkinsRootUrlHost = new URI(jenkinsRootUrlString).getHost();
             if (jenkinsRootUrlHost.equals(resourceRootUrlHost)) {
                 // We do not allow the same host for Jenkins and resource root URLs even if there's some other difference.
                 // This is a conservative choice and prohibits same host/different proto/different port/different path:
@@ -126,13 +130,13 @@ public final class ResourceDomainConfiguration extends GlobalConfiguration {
                 return FormValidation.error(Messages.ResourceDomainConfiguration_SameAsJenkinsRoot());
             }
         } catch (Exception ex) {
-            LOGGER.log(Level.CONFIG, "Failed to create URL from the existing Jenkins root URL", ex);
+            LOGGER.log(Level.CONFIG, "Failed to create URL from the existing Jenkins URL", ex);
             return FormValidation.error(Messages.ResourceDomainConfiguration_InvalidRootURL(ex.getMessage()));
         }
 
-        StaplerRequest currentRequest = Stapler.getCurrentRequest();
+        StaplerRequest2 currentRequest = Stapler.getCurrentRequest2();
         if (currentRequest != null) {
-            String currentRequestHost = currentRequest.getHeader("Host");
+            String currentRequestHost = currentRequest.getServerName();
 
             if (currentRequestHost.equals(resourceRootUrlHost)) {
                 return FormValidation.error(Messages.ResourceDomainConfiguration_SameAsCurrent());
@@ -145,9 +149,8 @@ public final class ResourceDomainConfiguration extends GlobalConfiguration {
 
         // Send a request to /instance-identity/ at the resource root URL and check whether it is this Jenkins
         try {
-            URLConnection urlConnection = new URL(resourceRootUrlString + "instance-identity/").openConnection();
-            if (urlConnection instanceof HttpURLConnection) {
-                HttpURLConnection httpURLConnection = (HttpURLConnection) urlConnection;
+            URLConnection urlConnection = new URI(resourceRootUrlString + "instance-identity/").toURL().openConnection();
+            if (urlConnection instanceof HttpURLConnection httpURLConnection) {
                 int responseCode = httpURLConnection.getResponseCode();
 
                 if (responseCode == 200) {
@@ -158,7 +161,7 @@ public final class ResourceDomainConfiguration extends GlobalConfiguration {
                     // URL points to a Jenkins instance
                     RSAPublicKey publicKey = InstanceIdentityProvider.RSA.getPublicKey();
                     if (publicKey != null) {
-                        String identity = Base64.encodeBase64String(publicKey.getEncoded());
+                        String identity = Base64.getEncoder().encodeToString(publicKey.getEncoded());
                         if (identity.equals(identityHeader)) {
                             return FormValidation.ok(Messages.ResourceDomainConfiguration_ThisJenkins());
                         }
@@ -168,13 +171,16 @@ public final class ResourceDomainConfiguration extends GlobalConfiguration {
                 }
                 // response is error
                 String responseMessage = httpURLConnection.getResponseMessage();
-                if (responseCode == 404 && responseMessage.equals(ERROR_RESPONSE)) {
-                    return FormValidation.ok(Messages.ResourceDomainConfiguration_ResourceResponse());
+                if (responseCode == 404) {
+                    String responseBody = String.join("", IOUtils.readLines(httpURLConnection.getErrorStream(), StandardCharsets.UTF_8));
+                    if (responseMessage.contains(ERROR_RESPONSE) || responseBody.contains(ERROR_RESPONSE)) {
+                        return FormValidation.ok(Messages.ResourceDomainConfiguration_ResourceResponse());
+                    }
                 }
                 return FormValidation.error(Messages.ResourceDomainConfiguration_FailedIdentityCheck(responseCode, responseMessage));
             }
             return FormValidation.error(Messages.ResourceDomainConfiguration_Invalid()); // unlikely to ever be hit
-        } catch (MalformedURLException ex) {
+        } catch (MalformedURLException | URISyntaxException ex) {
             // Not expected to be hit
             LOGGER.log(Level.FINE, "MalformedURLException occurred during instance identity check for " + resourceRootUrlString, ex);
             return FormValidation.error(Messages.ResourceDomainConfiguration_Exception(ex.getMessage()));

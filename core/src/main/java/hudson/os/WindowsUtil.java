@@ -24,20 +24,20 @@
 
 package hudson.os;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Functions;
-import org.apache.commons.io.IOUtils;
-
-import javax.annotation.Nonnull;
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.apache.commons.io.IOUtils;
 
 /**
  * Utilities for the Windows Platform.
  * Adapted from:
- * https://blogs.msdn.microsoft.com/twistylittlepassagesallalike/2011/04/23/everyone-quotes-command-line-arguments-the-wrong-way/
+ * <a href="https://docs.microsoft.com/en-us/archive/blogs/twistylittlepassagesallalike/everyone-quotes-command-line-arguments-the-wrong-way">Everyone quotes command line arguments the wrong way</a>
  *
  * @since 2.183
  */
@@ -50,7 +50,7 @@ public class WindowsUtil {
      * @param argument argument to be quoted or escaped for windows shells.
      * @return properly quoted and escaped windows arguments.
      */
-    public static @Nonnull String quoteArgument(@Nonnull String argument) {
+    public static @NonNull String quoteArgument(@NonNull String argument) {
         if (!NEEDS_QUOTING.matcher(argument).find()) return argument;
         StringBuilder sb = new StringBuilder();
         sb.append('"');
@@ -71,9 +71,7 @@ public class WindowsUtil {
             }
             // else backslashes have no special meaning and don't need to be escaped here
 
-            for (int j = 0; j < nrBackslashes; j++) {
-                sb.append('\\');
-            }
+            sb.append("\\".repeat(Math.max(0, nrBackslashes)));
 
             if (i < end) {
                 sb.append(argument.charAt(i));
@@ -89,7 +87,7 @@ public class WindowsUtil {
      * @param argument argument to be quoted or escaped for {@code cmd.exe}.
      * @return properly quoted and escaped arguments to {@code cmd.exe}.
      */
-    public static @Nonnull String quoteArgumentForCmd(@Nonnull String argument) {
+    public static @NonNull String quoteArgumentForCmd(@NonNull String argument) {
         return CMD_METACHARS.matcher(quoteArgument(argument)).replaceAll("^$0");
     }
 
@@ -98,7 +96,8 @@ public class WindowsUtil {
      * @param argv arguments to be quoted or escaped for {@code cmd.exe /C ...}.
      * @return properly quoted and escaped arguments to {@code cmd.exe /C ...}.
      */
-    public static @Nonnull Process execCmd(String... argv) throws IOException {
+    @SuppressFBWarnings(value = "COMMAND_INJECTION", justification = "TODO needs triage")
+    public static @NonNull Process execCmd(String... argv) throws IOException {
         String command = Arrays.stream(argv).map(WindowsUtil::quoteArgumentForCmd).collect(Collectors.joining(" "));
         return Runtime.getRuntime().exec(new String[]{"cmd.exe", "/C", command});
     }
@@ -113,7 +112,7 @@ public class WindowsUtil {
      * @throws InterruptedException if the call to mklink is interrupted before completing
      * @throws UnsupportedOperationException if this method is called on a non-Windows platform
      */
-    public static @Nonnull File createJunction(@Nonnull File junction, @Nonnull File target) throws IOException, InterruptedException {
+    public static @NonNull File createJunction(@NonNull File junction, @NonNull File target) throws IOException, InterruptedException {
         if (!Functions.isWindows()) {
             throw new UnsupportedOperationException("Can only be called on windows platform");
         }

@@ -1,24 +1,18 @@
 package jenkins.util.xml;
 
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import jenkins.util.SystemProperties;
-import org.w3c.dom.Document;
-import org.xml.sax.InputSource;
-import org.xml.sax.SAXException;
-import org.xml.sax.XMLReader;
-import org.xml.sax.helpers.XMLReaderFactory;
-
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
-import javax.annotation.Nonnull;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -34,15 +28,21 @@ import javax.xml.transform.stream.StreamSource;
 import javax.xml.xpath.XPath;
 import javax.xml.xpath.XPathExpressionException;
 import javax.xml.xpath.XPathFactory;
+import jenkins.util.SystemProperties;
+import org.w3c.dom.Document;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.XMLReader;
+import org.xml.sax.helpers.XMLReaderFactory;
 
 /**
   * Utilities useful when working with various XML types.
-  * @since 1.596.1 and 1.600, unrestricted since TODO
+  * @since 1.596.1 and 1.600, unrestricted since 2.179
  */
 public final class XMLUtils {
 
-    private final static Logger LOGGER = LogManager.getLogManager().getLogger(XMLUtils.class.getName());
-    private final static String DISABLED_PROPERTY_NAME = XMLUtils.class.getName() + ".disableXXEPrevention";
+    private static final Logger LOGGER = LogManager.getLogManager().getLogger(XMLUtils.class.getName());
+    private static final String DISABLED_PROPERTY_NAME = XMLUtils.class.getName() + ".disableXXEPrevention";
 
     private static final String FEATURE_HTTP_XML_ORG_SAX_FEATURES_EXTERNAL_GENERAL_ENTITIES = "http://xml.org/sax/features/external-general-entities";
     private static final String FEATURE_HTTP_XML_ORG_SAX_FEATURES_EXTERNAL_PARAMETER_ENTITIES = "http://xml.org/sax/features/external-parameter-entities";
@@ -55,7 +55,7 @@ public final class XMLUtils {
      *               {@link SAXSource} in order to be able to prevent XXE attacks.
      * @param out The Result of transforming the {@code source}.
      */
-    public static void safeTransform(@Nonnull Source source, @Nonnull Result out) throws TransformerException,
+    public static void safeTransform(@NonNull Source source, @NonNull Result out) throws TransformerException,
             SAXException {
 
         InputSource src = SAXSource.sourceToInputSource(source);
@@ -108,9 +108,35 @@ public final class XMLUtils {
      * @return The XML {@link Document}.
      * @throws SAXException Error parsing the XML stream data e.g. badly formed XML.
      * @throws IOException Error reading from the steam.
+     * @since 2.265
+     */
+    @SuppressFBWarnings(value = "XXE_DOCUMENT", justification = "newDocumentBuilderFactory() does what FindSecBugs recommends, yet FindSecBugs cannot see this")
+    public static @NonNull Document parse(@NonNull InputStream stream) throws SAXException, IOException {
+        DocumentBuilder docBuilder;
+
+        try {
+            docBuilder = newDocumentBuilderFactory().newDocumentBuilder();
+            docBuilder.setEntityResolver(RestrictiveEntityResolver.INSTANCE);
+        } catch (ParserConfigurationException e) {
+            throw new IllegalStateException("Unexpected error creating DocumentBuilder.", e);
+        }
+
+        return docBuilder.parse(new InputSource(stream));
+    }
+
+    /**
+     * Parse the supplied XML stream data to a {@link Document}.
+     * <p>
+     * This function does not close the stream.
+     * <p>In most cases you should prefer {@link #parse(InputStream)}.
+     * @param stream The XML stream.
+     * @return The XML {@link Document}.
+     * @throws SAXException Error parsing the XML stream data e.g. badly formed XML.
+     * @throws IOException Error reading from the steam.
      * @since 2.0
      */
-    public static @Nonnull Document parse(@Nonnull Reader stream) throws SAXException, IOException {
+    @SuppressFBWarnings(value = "XXE_DOCUMENT", justification = "newDocumentBuilderFactory() does what FindSecBugs recommends, yet FindSecBugs cannot see this")
+    public static @NonNull Document parse(@NonNull Reader stream) throws SAXException, IOException {
         DocumentBuilder docBuilder;
 
         try {
@@ -126,13 +152,29 @@ public final class XMLUtils {
     /**
      * Parse the supplied XML file data to a {@link Document}.
      * @param file The file to parse.
-     * @param encoding The encoding of the XML in the file.
      * @return The parsed document.
      * @throws SAXException Error parsing the XML file data e.g. badly formed XML.
      * @throws IOException Error reading from the file.
+     * @since 2.265
+     */
+    public static @NonNull Document parse(@NonNull File file) throws SAXException, IOException {
+        if (!file.exists() || !file.isFile()) {
+            throw new IllegalArgumentException(String.format("File %s does not exist or is not a 'normal' file.", file.getAbsolutePath()));
+        }
+
+        try (InputStream fileInputStream = Files.newInputStream(file.toPath())) {
+            return parse(fileInputStream);
+        } catch (InvalidPathException e) {
+            throw new IOException(e);
+        }
+    }
+
+    /**
+     * @deprecated use {@link #parse(File)}
      * @since 2.0
      */
-    public static @Nonnull Document parse(@Nonnull File file, @Nonnull String encoding) throws SAXException, IOException {
+    @Deprecated
+    public static @NonNull Document parse(@NonNull File file, @NonNull String encoding) throws SAXException, IOException {
         if (!file.exists() || !file.isFile()) {
             throw new IllegalArgumentException(String.format("File %s does not exist or is not a 'normal' file.", file.getAbsolutePath()));
         }
@@ -159,7 +201,7 @@ public final class XMLUtils {
      * @throws XPathExpressionException Invalid XPath expression.
      * @since 2.0
      */
-    public static @Nonnull String getValue(@Nonnull String xpath, @Nonnull File file) throws IOException, SAXException, XPathExpressionException {
+    public static @NonNull String getValue(@NonNull String xpath, @NonNull File file) throws IOException, SAXException, XPathExpressionException {
         return getValue(xpath, file, Charset.defaultCharset().toString());
     }
 
@@ -175,7 +217,7 @@ public final class XMLUtils {
      * @throws XPathExpressionException Invalid XPath expression.
      * @since 2.0
      */
-    public static @Nonnull String getValue(@Nonnull String xpath, @Nonnull File file, @Nonnull String fileDataEncoding) throws IOException, SAXException, XPathExpressionException {
+    public static @NonNull String getValue(@NonNull String xpath, @NonNull File file, @NonNull String fileDataEncoding) throws IOException, SAXException, XPathExpressionException {
         Document document = parse(file, fileDataEncoding);
         return getValue(xpath, document);
     }
@@ -225,6 +267,7 @@ public final class XMLUtils {
 
         return documentBuilderFactory;
     }
+
     private static void setDocumentBuilderFactoryFeature(DocumentBuilderFactory documentBuilderFactory, String feature, boolean state) {
         try {
             documentBuilderFactory.setFeature(feature, state);

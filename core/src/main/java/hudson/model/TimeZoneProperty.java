@@ -1,26 +1,31 @@
 package hudson.model;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
+import hudson.Util;
+import hudson.model.userproperty.UserPropertyCategory;
+import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import hudson.util.ListBoxModel.Option;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-import java.io.IOException;
+import java.text.DateFormat;
+import java.util.Date;
 import java.util.TimeZone;
-import java.util.logging.Logger;
 import java.util.logging.Level;
+import java.util.logging.Logger;
+import jenkins.model.Jenkins;
 import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
-
+import org.kohsuke.stapler.AncestorInPath;
+import org.kohsuke.stapler.DataBoundConstructor;
+import org.kohsuke.stapler.QueryParameter;
 
 /**
  * A UserProperty that allows a user to specify a time zone for displaying time.
  */
 @Restricted(NoExternalUse.class)
-public class TimeZoneProperty extends UserProperty implements Saveable {
+public class TimeZoneProperty extends UserProperty {
     /**
      * Time Zone ID defined by the user.
      * {@code null} means that the time zone is not defined.
@@ -39,23 +44,28 @@ public class TimeZoneProperty extends UserProperty implements Saveable {
         this(null);
     }
 
-    @Override
-    public void save() throws IOException {
-        user.save();
-    }
-
     public void setTimeZoneName(@CheckForNull String timeZoneName) {
         this.timeZoneName = timeZoneName;
+    }
+
+    @CheckForNull
+    public String getTimeZoneName() {
+        return timeZoneName;
     }
 
     @Extension
     @Symbol("timezone")
     public static class DescriptorImpl extends UserPropertyDescriptor {
 
-        @Nonnull
+        @NonNull
         @Override
         public String getDisplayName() {
             return Messages.TimeZoneProperty_DisplayName();
+        }
+
+        @Override
+        public String getDescription() {
+            return Messages.TimeZoneProperty_Description();
         }
 
         @Override
@@ -78,12 +88,15 @@ public class TimeZoneProperty extends UserProperty implements Saveable {
             return true;
         }
 
-        public ListBoxModel doFillTimeZoneNameItems() {
-            String current = forCurrentUser();
+        public ListBoxModel doFillTimeZoneNameItems(@AncestorInPath User user) {
+            if (user != null) {
+                user.checkPermission(Jenkins.ADMINISTER);
+            }
+            String userTimezone = user != null ? forUser(user) : forCurrentUser();
             ListBoxModel items = new ListBoxModel();
             items.add(Messages.TimeZoneProperty_DisplayDefaultTimeZone(), "");
             for (String id : TimeZone.getAvailableIDs()) {
-                if (id.equalsIgnoreCase(current)) {
+                if (id.equalsIgnoreCase(userTimezone)) {
                     items.add(new Option(id, id, true));
                 } else {
                     items.add(id);
@@ -91,17 +104,37 @@ public class TimeZoneProperty extends UserProperty implements Saveable {
             }
             return items;
         }
+
+        public FormValidation doCheckTimeZoneName(@QueryParameter String timeZoneName) {
+            Date now = new Date();
+            if (Util.fixEmpty(timeZoneName) == null) {
+                return FormValidation.ok(Messages.TimeZoneProperty_current_time_in_(TimeZone.getDefault().getDisplayName(), DateFormat.getDateTimeInstance().format(now)));
+            } else {
+                DateFormat localTime = DateFormat.getDateTimeInstance();
+                localTime.setTimeZone(TimeZone.getTimeZone(timeZoneName));
+                return FormValidation.ok(Messages.TimeZoneProperty_current_time_on_server_in_in_proposed_di(TimeZone.getDefault().getDisplayName(), DateFormat.getDateTimeInstance().format(now), localTime.format(now)));
+            }
+        }
+
+        @Override
+        public @NonNull UserPropertyCategory getUserPropertyCategory() {
+            return UserPropertyCategory.get(UserPropertyCategory.Preferences.class);
+        }
     }
 
-    @Nullable
+    @CheckForNull
     public static String forCurrentUser() {
         final User current = User.current();
         if (current == null) {
             return null;
         }
+        return forUser(current);
+    }
 
-        TimeZoneProperty tzp = current.getProperty(TimeZoneProperty.class);
-        if(tzp.timeZoneName == null || tzp.timeZoneName.isEmpty()) {
+    @CheckForNull
+    private static String forUser(User user) {
+        TimeZoneProperty tzp = user.getProperty(TimeZoneProperty.class);
+        if (tzp.timeZoneName == null || tzp.timeZoneName.isEmpty()) {
             return null;
         }
 
@@ -110,7 +143,7 @@ public class TimeZoneProperty extends UserProperty implements Saveable {
             //TimeZone.getTimeZone returns GMT on invalid time zone so
             //warn the user if the time zone returned is different from
             //the one they specified.
-            LOGGER.log(Level.WARNING, "Invalid user time zone {0} for {1}", new Object[]{tzp.timeZoneName, current.getId()});
+            LOGGER.log(Level.WARNING, "Invalid user time zone {0} for {1}", new Object[]{tzp.timeZoneName, user.getId()});
             return null;
         }
 

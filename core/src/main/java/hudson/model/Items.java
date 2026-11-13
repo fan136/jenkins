@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,9 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
 import com.thoughtworks.xstream.XStream;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.DescriptorExtensionList;
 import hudson.Extension;
 import hudson.XmlFile;
@@ -35,7 +38,6 @@ import hudson.security.AccessControlled;
 import hudson.triggers.Trigger;
 import hudson.util.DescriptorList;
 import hudson.util.EditDistance;
-import jenkins.util.MemoryReductionUtil;
 import hudson.util.XStream2;
 import java.io.File;
 import java.io.IOException;
@@ -48,17 +50,17 @@ import java.util.NoSuchElementException;
 import java.util.Stack;
 import java.util.StringTokenizer;
 import java.util.function.Predicate;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
 import jenkins.model.DirectlyModifiableTopLevelItemGroup;
 import jenkins.model.Jenkins;
-import org.acegisecurity.Authentication;
+import jenkins.util.MemoryReductionUtil;
+import jenkins.util.ThrowingCallable;
+import jenkins.util.ThrowingRunnable;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang.StringUtils;
+import org.springframework.security.core.Authentication;
 
 /**
  * Convenience methods related to {@link Item}.
- * 
+ *
  * @author Kohsuke Kawaguchi
  */
 public class Items {
@@ -76,11 +78,7 @@ public class Items {
      * @see Trigger#start
      * @since 1.482
      */
-    private static final ThreadLocal<Boolean> updatingByXml = new ThreadLocal<Boolean>() {
-        @Override protected Boolean initialValue() {
-            return false;
-        }
-    };
+    private static final ThreadLocal<Boolean> updatingByXml = ThreadLocal.withInitial(() -> false);
     /**
      * A comparator of {@link Item} instances that uses a case-insensitive comparison of {@link Item#getName()}.
      * If you are replacing {@link #getAllItems(ItemGroup, Class)} with {@link #allItems(ItemGroup, Class)} and
@@ -123,14 +121,44 @@ public class Items {
     /**
      * Runs a block while making {@link #currentlyUpdatingByXml} be temporarily true.
      * Use this when you are creating or changing an item.
+     * @param <T> an error type (may be {@link Error})
+     * @param runnable a block, typically running {@link #load} or {@link Item#onLoad}
+     * @throws T anything {@code runnable} throws
+     * @since 2.534
+     */
+    public static <T extends Throwable> void runWhileUpdatingByXml(ThrowingRunnable<T> runnable) throws T {
+        updatingByXml.set(true);
+        try {
+            runnable.run();
+        } finally {
+            updatingByXml.set(false);
+        }
+    }
+
+    /**
+     * Runs a block while making {@link #currentlyUpdatingByXml} be temporarily true.
+     * Use this when you are creating or changing an item.
      * @param <V> a return value type (may be {@link Void})
      * @param <T> an error type (may be {@link Error})
      * @param callable a block, typically running {@link #load} or {@link Item#onLoad}
      * @return whatever {@code callable} returned
      * @throws T anything {@code callable} throws
+     * @since 2.534
+     */
+    public static <V, T extends Throwable> V callWhileUpdatingByXml(ThrowingCallable<V, T> callable) throws T {
+        updatingByXml.set(true);
+        try {
+            return callable.call();
+        } finally {
+            updatingByXml.set(false);
+        }
+    }
+
+    /**
+     * Prefer {@link #runWhileUpdatingByXml} or {@link #callWhileUpdatingByXml}.
      * @since 1.546
      */
-    public static <V,T extends Throwable> V whileUpdatingByXml(Callable<V,T> callable) throws T {
+    public static <V, T extends Throwable> V whileUpdatingByXml(Callable<V, T> callable) throws T {
         updatingByXml.set(true);
         try {
             return callable.call();
@@ -142,7 +170,8 @@ public class Items {
     /**
      * Checks whether we are in the middle of creating or configuring an item via XML.
      * Used to determine the {@code newInstance} parameter for {@link Trigger#start}.
-     * @return true if {@link #whileUpdatingByXml} is currently being called, false for example when merely starting Jenkins or reloading from disk
+     * @return true if {@link #runWhileUpdatingByXml} or {@link #callWhileUpdatingByXml} is currently being called,
+     *         false for example when merely starting Jenkins or reloading from disk
      * @since 1.546
      */
     public static boolean currentlyUpdatingByXml() {
@@ -152,7 +181,7 @@ public class Items {
     /**
      * Returns all the registered {@link TopLevelItemDescriptor}s.
      */
-    public static DescriptorExtensionList<TopLevelItem,TopLevelItemDescriptor> all() {
+    public static DescriptorExtensionList<TopLevelItem, TopLevelItemDescriptor> all() {
         return Jenkins.get().getDescriptorList(TopLevelItem.class);
     }
 
@@ -163,16 +192,16 @@ public class Items {
      * @since 1.607
      */
     public static List<TopLevelItemDescriptor> all(ItemGroup c) {
-        return all(Jenkins.getAuthentication(), c);
+        return all2(Jenkins.getAuthentication2(), c);
     }
 
     /**
      * Returns all the registered {@link TopLevelItemDescriptor}s that the specified security principal is allowed to
      * create within the specified item group.
      *
-     * @since 1.607
+     * @since 2.266
      */
-    public static List<TopLevelItemDescriptor> all(Authentication a, ItemGroup c) {
+    public static List<TopLevelItemDescriptor> all2(Authentication a, ItemGroup c) {
         List<TopLevelItemDescriptor> result = new ArrayList<>();
         ACL acl;
         if (c instanceof AccessControlled) {
@@ -181,12 +210,21 @@ public class Items {
             // fall back to root
             acl = Jenkins.get().getACL();
         }
-        for (TopLevelItemDescriptor d: all()) {
-            if (acl.hasCreatePermission(a, c, d) && d.isApplicableIn(c)) {
+        for (TopLevelItemDescriptor d : all()) {
+            if (acl.hasCreatePermission2(a, c, d) && d.isApplicableIn(c)) {
                 result.add(d);
             }
         }
         return result;
+    }
+
+    /**
+     * @deprecated use {@link #all2(Authentication, ItemGroup)}
+     * @since 1.607
+     */
+    @Deprecated
+    public static List<TopLevelItemDescriptor> all(org.acegisecurity.Authentication a, ItemGroup c) {
+        return all2(a.toSpring(), c);
     }
 
     /**
@@ -203,7 +241,7 @@ public class Items {
     public static String toNameList(Collection<? extends Item> items) {
         StringBuilder buf = new StringBuilder();
         for (Item item : items) {
-            if(buf.length()>0)
+            if (!buf.isEmpty())
                 buf.append(", ");
             buf.append(item.getFullName());
         }
@@ -216,23 +254,23 @@ public class Items {
      */
     @Deprecated
     public static <T extends Item> List<T> fromNameList(String list, Class<T> type) {
-        return fromNameList(null,list,type);
+        return fromNameList(null, list, type);
     }
 
     /**
      * Does the opposite of {@link #toNameList(Collection)}.
      */
-    public static <T extends Item> List<T> fromNameList(ItemGroup context, @Nonnull String list, @Nonnull Class<T> type) {
+    public static <T extends Item> List<T> fromNameList(ItemGroup context, @NonNull String list, @NonNull Class<T> type) {
         final Jenkins jenkins = Jenkins.get();
-        
+
         List<T> r = new ArrayList<>();
 
-        StringTokenizer tokens = new StringTokenizer(list,",");
-        while(tokens.hasMoreTokens()) {
+        StringTokenizer tokens = new StringTokenizer(list, ",");
+        while (tokens.hasMoreTokens()) {
             String fullName = tokens.nextToken().trim();
-            if (StringUtils.isNotEmpty(fullName)) {
+            if (fullName != null && !fullName.isEmpty()) {
                 T item = jenkins.getItem(fullName, context, type);
-                if(item!=null)
+                if (item != null)
                     r.add(item);
             }
         }
@@ -249,18 +287,18 @@ public class Items {
         String[] p = path.split("/");
 
         Stack<String> name = new Stack<>();
-        for (int i=0; i<c.length;i++) {
-            if (i==0 && c[i].equals("")) continue;
+        for (int i = 0; i < c.length; i++) {
+            if (i == 0 && c[i].isEmpty()) continue;
             name.push(c[i]);
         }
-        for (int i=0; i<p.length;i++) {
-            if (i==0 && p[i].equals("")) {
+        for (int i = 0; i < p.length; i++) {
+            if (i == 0 && p[i].isEmpty()) {
                 // Absolute path starting with a "/"
                 name.clear();
                 continue;
             }
             if (p[i].equals("..")) {
-                if (name.size() == 0) {
+                if (name.isEmpty()) {
                     throw new IllegalArgumentException(String.format(
                             "Illegal relative path '%s' within context '%s'", path, context.getFullName()
                     ));
@@ -273,7 +311,7 @@ public class Items {
             }
             name.push(p[i]);
         }
-        return StringUtils.join(name, '/');
+        return String.join("/", name);
     }
 
     /**
@@ -291,12 +329,12 @@ public class Items {
      */
     public static String computeRelativeNamesAfterRenaming(String oldFullName, String newFullName, String relativeNames, ItemGroup context) {
 
-        StringTokenizer tokens = new StringTokenizer(relativeNames,",");
+        StringTokenizer tokens = new StringTokenizer(relativeNames, ",");
         List<String> newValue = new ArrayList<>();
-        while(tokens.hasMoreTokens()) {
+        while (tokens.hasMoreTokens()) {
             String relativeName = tokens.nextToken().trim();
             String canonicalName = getCanonicalName(context, relativeName);
-            if (canonicalName.equals(oldFullName) || canonicalName.startsWith(oldFullName+'/')) {
+            if (canonicalName.equals(oldFullName) || canonicalName.startsWith(oldFullName + '/')) {
                 String newCanonicalName = newFullName + canonicalName.substring(oldFullName.length());
                 if (relativeName.startsWith("/")) {
                     newValue.add("/" + newCanonicalName);
@@ -307,7 +345,7 @@ public class Items {
                 newValue.add(relativeName);
             }
         }
-        return StringUtils.join(newValue, ",");
+        return String.join(",", newValue);
     }
 
     // Had difficulty adapting the version in Functions to use no live items, so rewrote it:
@@ -367,8 +405,8 @@ public class Items {
      *      The directory that contains the config file, not the config file itself.
      */
     public static Item load(ItemGroup parent, File dir) throws IOException {
-        Item item = (Item)getConfigFile(dir).read();
-        item.onLoad(parent,dir.getName());
+        Item item = (Item) getConfigFile(dir).read();
+        item.onLoad(parent, parent.getItemName(dir, item));
         return item;
     }
 
@@ -376,7 +414,7 @@ public class Items {
      * The file we save our configuration.
      */
     public static XmlFile getConfigFile(File dir) {
-        return new XmlFile(XSTREAM,new File(dir,"config.xml"));
+        return new XmlFile(XSTREAM, new File(dir, "config.xml"));
     }
 
     /**
@@ -385,7 +423,7 @@ public class Items {
     public static XmlFile getConfigFile(Item item) {
         return getConfigFile(item.getRootDir());
     }
-    
+
     /**
      * Gets all the {@link Item}s recursively in the {@link ItemGroup} tree
      * and filter them by the given type. The returned list will represent a snapshot view of the items present at some
@@ -398,11 +436,11 @@ public class Items {
      * @param root Root node to start searching from
      * @param type Given type of of items being searched for
      * @return List of items matching given criteria
-     * 
+     *
      * @since 1.512
      */
     public static <T extends Item> List<T> getAllItems(final ItemGroup root, Class<T> type) {
-        return getAllItems(root ,type, t -> true);
+        return getAllItems(root, type, t -> true);
     }
 
     /**
@@ -413,15 +451,16 @@ public class Items {
      * @param pred Predicate condition to filter items
      * @return List of items matching given criteria
      *
-     * @since TODO
+     * @since 2.221
      */
     public static <T extends Item> List<T> getAllItems(final ItemGroup root, Class<T> type, Predicate<T> pred) {
         List<T> r = new ArrayList<>();
         getAllItems(root, type, r, pred);
         return r;
     }
+
     private static <T extends Item> void getAllItems(final ItemGroup root, Class<T> type, List<T> r, Predicate<T> pred) {
-        List<Item> items = new ArrayList<>(((ItemGroup<?>) root).getItems());
+        List<Item> items = new ArrayList<>(((ItemGroup<?>) root).getItems(t -> t instanceof ItemGroup || (type.isInstance(t) && pred.test(type.cast(t)))));
         // because we add items depth first, we can use the quicker BY_NAME comparison
         items.sort(BY_NAME);
         for (Item i : items) {
@@ -438,7 +477,7 @@ public class Items {
 
     /**
      * Gets a read-only view of all the {@link Item}s recursively in the {@link ItemGroup} tree visible to
-     * {@link Jenkins#getAuthentication()} without concern for the order in which items are returned. Each iteration
+     * {@link Jenkins#getAuthentication2()} without concern for the order in which items are returned. Each iteration
      * of the view will be "live" reflecting the items available between the time the iteration was started and the
      * time the iteration was completed, however if items are moved during an iteration - depending on the move - it
      * may be possible for such items to escape the entire iteration.
@@ -450,26 +489,26 @@ public class Items {
      * @since 2.37
      */
     public static <T extends Item> Iterable<T> allItems(ItemGroup root, Class<T> type) {
-        return allItems(Jenkins.getAuthentication(), root, type);
+        return allItems2(Jenkins.getAuthentication2(), root, type);
     }
 
     /**
      * Gets a read-only view of all the {@link Item}s recursively matching type and predicate
      * in the {@link ItemGroup} tree visible to
-     * {@link Jenkins#getAuthentication()} without concern for the order in which items are returned. Each iteration
+     * {@link Jenkins#getAuthentication2()} without concern for the order in which items are returned. Each iteration
      * of the view will be "live" reflecting the items available between the time the iteration was started and the
      * time the iteration was completed, however if items are moved during an iteration - depending on the move - it
      * may be possible for such items to escape the entire iteration.
      *
      * @param root the root.
      * @param type the type.
+     * @param pred the predicate.
      * @param <T> the type.
-     * @param <T> the predicate.
      * @return An {@link Iterable} for all items.
-     * @since TODO
+     * @since 2.221
      */
     public static <T extends Item> Iterable<T> allItems(ItemGroup root, Class<T> type, Predicate<T> pred) {
-        return allItems(Jenkins.getAuthentication(), root, type, pred);
+        return allItems2(Jenkins.getAuthentication2(), root, type, pred);
     }
 
     /**
@@ -483,10 +522,19 @@ public class Items {
      * @param type the type.
      * @param <T> the type.
      * @return An {@link Iterable} for all items.
+     * @since 2.266
+     */
+    public static <T extends Item> Iterable<T> allItems2(Authentication authentication, ItemGroup root, Class<T> type) {
+        return allItems2(authentication, root, type, t -> true);
+    }
+
+    /**
+     * @deprecated use {@link #allItems2(Authentication, ItemGroup, Class)}
      * @since 2.37
      */
-    public static <T extends Item> Iterable<T> allItems(Authentication authentication, ItemGroup root, Class<T> type) {
-        return allItems(authentication, root, type, t -> true);
+    @Deprecated
+    public static <T extends Item> Iterable<T> allItems(org.acegisecurity.Authentication authentication, ItemGroup root, Class<T> type) {
+        return allItems2(authentication.toSpring(), root, type);
     }
 
     /**
@@ -502,10 +550,19 @@ public class Items {
      * @param <T> the type.
      * @param pred the predicate.
      * @return An {@link Iterable} for all items.
-     * @since TODO
+     * @since 2.266
      */
-    public static <T extends Item> Iterable<T> allItems(Authentication authentication, ItemGroup root, Class<T> type, Predicate<T> pred) {
+    public static <T extends Item> Iterable<T> allItems2(Authentication authentication, ItemGroup root, Class<T> type, Predicate<T> pred) {
         return new AllItemsIterable<>(root, authentication, type, pred);
+    }
+
+    /**
+     * @deprecated use {@link #allItems2(Authentication, ItemGroup, Class, Predicate)}
+     * @since 2.221
+     */
+    @Deprecated
+    public static <T extends Item> Iterable<T> allItems(org.acegisecurity.Authentication authentication, ItemGroup root, Class<T> type, Predicate<T> pred) {
+        return allItems2(authentication.toSpring(), root, type, pred);
     }
 
     /**
@@ -519,7 +576,7 @@ public class Items {
      */
     public static @CheckForNull <T extends Item> T findNearest(Class<T> type, String name, ItemGroup context) {
         List<String> names = new ArrayList<>();
-        for (T item: Jenkins.get().allItems(type)) {
+        for (T item : Jenkins.get().allItems(type)) {
             names.add(item.getRelativeNameFrom(context));
         }
         String nearest = EditDistance.findNearest(name, names);
@@ -630,13 +687,13 @@ public class Items {
                         }
                         ItemGroup group = stack.pop();
                         // group.getItems() is responsible for performing the permission check so we will not repeat it
-                        if (Jenkins.getAuthentication() == authentication) {
+                        if (Jenkins.getAuthentication2().equals(authentication)) {
                             delegate = group.getItems(search).iterator();
                         } else {
                             // slower path because the caller has switched authentication
                             // we need to keep the original authentication so that allItems() can be used
                             // like getAllItems() without the cost of building the entire list up front
-                            try (ACLContext ctx = ACL.as(authentication)) {
+                            try (ACLContext ctx = ACL.as2(authentication)) {
                                 delegate = group.getItems(search).iterator();
                             }
                         }
@@ -677,9 +734,9 @@ public class Items {
      * @throws IllegalArgumentException if there is already something there, which you were supposed to know about
      * @throws Failure if there is already something there but you should not be told details
      */
-    static void verifyItemDoesNotAlreadyExist(@Nonnull ItemGroup<?> parent, @Nonnull String newName, @CheckForNull Item variant) throws IllegalArgumentException, Failure {
+    static void verifyItemDoesNotAlreadyExist(@NonNull ItemGroup<?> parent, @NonNull String newName, @CheckForNull Item variant) throws IllegalArgumentException, Failure {
         Item existing;
-        try (ACLContext ctxt = ACL.as(ACL.SYSTEM)) {
+        try (ACLContext ctxt = ACL.as2(ACL.SYSTEM2)) {
             existing = parent.getItem(newName);
         }
         if (existing != null && existing != variant) {
@@ -704,9 +761,9 @@ public class Items {
     /**
      * Alias to {@link #XSTREAM} so that one can access additional methods on {@link XStream2} more easily.
      */
-    public static final XStream2 XSTREAM2 = (XStream2)XSTREAM;
+    public static final XStream2 XSTREAM2 = (XStream2) XSTREAM;
 
     static {
-        XSTREAM.alias("project",FreeStyleProject.class);
+        XSTREAM.alias("project", FreeStyleProject.class);
     }
 }
